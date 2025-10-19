@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Weather Monitor</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <!-- Load Phosphor Icons (for weather icons) -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1f2937, #374151); /* Dark Blue/Gray Gradient */
+        }
+        .weather-card {
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            background-color: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .loading-ring {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+        }
+        .loading-ring:after {
+            content: " ";
+            display: block;
+            width: 32px;
+            height: 32px;
+            margin: 4px;
+            border-radius: 50%;
+            border: 4px solid #fff;
+            border-color: #ffffff transparent #ffffff transparent;
+            animation: loading-ring 1.2s linear infinite;
+        }
+        @keyframes loading-ring {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center p-4">
+
+    <!-- Main Container -->
+    <div class="w-full max-w-lg mx-auto p-4 md:p-8">
+
+        <!-- Header and Search -->
+        <header class="text-center mb-6 text-white">
+            <h1 class="text-3xl font-bold mb-2">Global Weather</h1>
+            <!-- Removed the User ID display as it relied on Firebase -->
+        </header>
+
+        <div class="flex space-x-3 mb-6">
+            <input type="text" id="city-input" placeholder="Enter city name (e.g., Tokyo, London, Paris)"
+                   class="flex-1 p-3 rounded-xl border border-gray-700 bg-gray-700 text-white placeholder-gray-400 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
+                   onkeydown="if(event.key === 'Enter') document.getElementById('search-btn').click()">
+            <button id="search-btn"
+                    class="p-3 bg-blue-600 hover:bg-blue-700 rounded-xl text-white font-semibold flex items-center justify-center transition duration-200"
+                    onclick="handleSearch()">
+                <i class="ph ph-magnifying-glass text-xl"></i>
+            </button>
+        </div>
+        
+        <!-- Weather Card Display -->
+        <div id="weather-card" class="weather-card p-6 rounded-3xl text-white text-center min-h-[300px] flex items-center justify-center">
+            
+            <div id="loading-indicator" class="hidden flex flex-col items-center">
+                <div class="loading-ring"></div>
+                <p class="mt-4 text-gray-300">Fetching weather data...</p>
+            </div>
+
+            <div id="error-message" class="hidden text-red-400">
+                <i class="ph ph-warning-octagon text-5xl mb-3"></i>
+                <p id="error-text" class="text-lg font-medium">City not found. Please try again.</p>
+            </div>
+
+            <div id="weather-details" class="hidden w-full">
+                <!-- Main Display -->
+                <div class="mb-6">
+                    <h2 id="city-name" class="text-4xl md:text-5xl font-extrabold mb-1"></h2>
+                    <p id="weather-description" class="text-lg text-gray-300 capitalize"></p>
+                </div>
+
+                <div class="flex items-center justify-center space-x-4 mb-6">
+                    <img id="weather-icon" src="" alt="Weather Icon" class="w-20 h-20 md:w-24 md:h-24 filter drop-shadow-lg">
+                    <p id="current-temp" class="text-7xl md:text-8xl font-light">--°C</p>
+                </div>
+
+                <!-- Toggle Button -->
+                <button id="toggle-units" 
+                        class="px-3 py-1 mb-6 bg-gray-700/50 text-xs rounded-full hover:bg-gray-600/70 transition duration-150"
+                        onclick="toggleUnits()">Switch to °F</button>
+
+                <!-- Details Grid -->
+                <div class="grid grid-cols-2 gap-4 text-sm text-gray-300 border-t border-gray-700 pt-4">
+                    <div class="flex items-center justify-center space-x-2">
+                        <i class="ph ph-wind text-lg text-blue-300"></i>
+                        <span id="wind-speed">-- m/s</span>
+                    </div>
+                    <div class="flex items-center justify-center space-x-2">
+                        <i class="ph ph-drop text-lg text-blue-300"></i>
+                        <span id="humidity">--%</span>
+                    </div>
+                    <div class="flex items-center justify-center space-x-2">
+                        <i class="ph ph-thermometer-simple text-lg text-blue-300"></i>
+                        <span id="feels-like">Feels like --°C</span>
+                    </div>
+                    <div class="flex items-center justify-center space-x-2">
+                        <i class="ph ph-cloud-fog text-lg text-blue-300"></i>
+                        <span id="pressure">-- hPa</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Frontend-Only JavaScript -->
+    <script type="module">
+        
+        let weatherData = null; // Store fetched data globally
+        let currentUnit = 'C'; // C for Celsius, F for Fahrenheit
+
+        // --- OPENWEATHERMAP API CONFIG ---
+        // IMPORTANT: Replace this placeholder with your actual OpenWeatherMap key
+        const API_KEY = "3e2bac564e7b194d7467be428b37d4e3"; 
+        const DEFAULT_CITY = "London";
+
+        // --- UI Elements ---
+        const cityInput = document.getElementById('city-input');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const weatherDetails = document.getElementById('weather-details');
+        const errorMessage = document.getElementById('error-message');
+        const currentTempEl = document.getElementById('current-temp');
+        const toggleUnitsBtn = document.getElementById('toggle-units');
+
+        // --- UTILITY FUNCTIONS ---
+        
+        // Converts Celsius to Fahrenheit
+        const celsiusToFahrenheit = (c) => (c * 9/5) + 32;
+
+        // --- WEATHER API LOGIC ---
+
+        const fetchWeather = async (city) => {
+            if (API_KEY === "YOUR_OPENWEATHERMAP_API_KEY") {
+                displayError("Please replace 'YOUR_OPENWEATHERMAP_API_KEY' in the script with your actual OpenWeatherMap key.");
+                return;
+            }
+
+            // Using units=metric for OpenWeatherMap to get Celsius and meters/sec
+            const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${API_KEY}&units=metric`;
+            
+            // UI State: Loading
+            loadingIndicator.classList.remove('hidden');
+            weatherDetails.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.cod !== 200) {
+                    displayError(data.message || "Could not find weather data for this city.");
+                    return;
+                }
+                
+                weatherData = data;
+                cityInput.value = data.name; // Use the official city name returned by the API
+                displayWeather(data);
+
+            } catch (e) {
+                console.error("Fetch error:", e);
+                displayError("A network error occurred. Please check your connection.");
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        };
+
+        const displayError = (message) => {
+            errorMessage.classList.remove('hidden');
+            weatherDetails.classList.add('hidden');
+            document.getElementById('error-text').textContent = message;
+        };
+
+        const displayWeather = (data) => {
+            // Ensure UI is visible
+            weatherDetails.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+            
+            // Map the units=metric response structure
+            const tempC = data.main.temp;
+            const feelsLikeC = data.main.feels_like;
+
+            // Store the Celsius values for local unit switching
+            weatherData.main.tempC = tempC;
+            weatherData.main.feelsLikeC = feelsLikeC;
+
+
+            // Update Main Info
+            document.getElementById('city-name').textContent = `${data.name}, ${data.sys.country}`;
+            document.getElementById('weather-description').textContent = data.weather[0].description;
+            
+            // Update Temp and Units
+            updateTempDisplay();
+            
+            // Update Icon
+            const iconCode = data.weather[0].icon;
+            document.getElementById('weather-icon').src = `https://openweathermap.org/img/wn/${iconCode}@4x.png`;
+            
+            // Update Details
+            document.getElementById('wind-speed').textContent = `${data.wind.speed.toFixed(1)} m/s`;
+            document.getElementById('humidity').textContent = `${data.main.humidity}%`;
+            document.getElementById('pressure').textContent = `${data.main.pressure} hPa`;
+        };
+        
+        const updateTempDisplay = () => {
+             if (!weatherData) return;
+
+             const tempC = weatherData.main.tempC;
+             const feelsLikeC = weatherData.main.feelsLikeC;
+             let mainTemp, feelsLikeTemp, unitLabel, toggleText;
+
+             if (currentUnit === 'C') {
+                 mainTemp = tempC;
+                 feelsLikeTemp = feelsLikeC;
+                 unitLabel = '°C';
+                 toggleText = 'Switch to °F';
+             } else {
+                 mainTemp = celsiusToFahrenheit(tempC);
+                 feelsLikeTemp = celsiusToFahrenheit(feelsLikeC);
+                 unitLabel = '°F';
+                 toggleText = 'Switch to °C';
+             }
+
+             currentTempEl.textContent = `${mainTemp.toFixed(1)}${unitLabel}`;
+             document.getElementById('feels-like').textContent = `Feels like ${feelsLikeTemp.toFixed(1)}${unitLabel}`;
+             toggleUnitsBtn.textContent = toggleText;
+        }
+
+        const toggleUnits = () => {
+            currentUnit = (currentUnit === 'C') ? 'F' : 'C';
+            updateTempDisplay();
+        };
+
+        // --- HANDLERS ---
+        
+        const handleSearch = () => {
+            const city = cityInput.value.trim();
+            if (city) {
+                fetchWeather(city);
+            }
+        };
+        
+        // Expose global functions to the HTML
+        window.handleSearch = handleSearch;
+        window.toggleUnits = toggleUnits;
+
+        // --- INITIALIZATION ---
+        // Start the app by loading the default city weather
+        fetchWeather(DEFAULT_CITY);
+
+    </script>
+
+</body>
+</html>
